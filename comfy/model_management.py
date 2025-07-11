@@ -636,6 +636,14 @@ def maximum_vram_for_weights(device=None):
     return (get_total_memory(device) * 0.88 - minimum_inference_memory())
 
 def unet_dtype(device=None, model_params=0, supported_dtypes=[torch.float16, torch.bfloat16, torch.float32]):
+    # ✅ 1. 如果没有 CUDA，直接用 float32
+    if not hasattr(torch, "cuda") or not torch.cuda.is_available():
+        return torch.float32
+
+    # ✅ 2. 如果 device 是 CPU，也直接走 float32
+    if device is not None and "cpu" in str(device).lower():
+        return torch.float32
+
     if model_params < 0:
         model_params = 1000000000000000000000
     if args.fp32_unet:
@@ -996,6 +1004,13 @@ def is_device_cuda(device):
 def should_use_fp16(device=None, model_params=0, prioritize_performance=True, manual_cast=False):
     global directml_enabled
 
+    # ✅ 强制 CPU fallback
+    if not hasattr(torch, "cuda") or not torch.cuda.is_available():
+        return False
+
+    if device is not None and "cpu" in str(device).lower():
+        return False
+
     if device is not None:
         if is_device_cpu(device):
             return False
@@ -1021,10 +1036,16 @@ def should_use_fp16(device=None, model_params=0, prioritize_performance=True, ma
     if is_ascend_npu():
         return True
 
-    if torch.version.hip:
+    # if torch.version.hip:
+    #     return True
+    if hasattr(torch.version, "hip") and torch.version.hip:
         return True
 
-    props = torch.cuda.get_device_properties(device)
+    try:
+        props = torch.cuda.get_device_properties(device)
+    except Exception:
+        # ✅ 兜底：即使上面漏了，也绝不报 Torch not compiled with CUDA enabled
+        return False
     if props.major >= 8:
         return True
 
@@ -1057,6 +1078,13 @@ def should_use_fp16(device=None, model_params=0, prioritize_performance=True, ma
     return True
 
 def should_use_bf16(device=None, model_params=0, prioritize_performance=True, manual_cast=False):
+    # ✅ 强制 CPU fallback
+    if not hasattr(torch, "cuda") or not torch.cuda.is_available():
+        return False
+
+    if device is not None and "cpu" in str(device).lower():
+        return False
+
     if device is not None:
         if is_device_cpu(device): #TODO ? bf16 works on CPU but is extremely slow
             return False
@@ -1078,7 +1106,11 @@ def should_use_bf16(device=None, model_params=0, prioritize_performance=True, ma
     if is_intel_xpu():
         return True
 
-    props = torch.cuda.get_device_properties(device)
+    try:
+        props = torch.cuda.get_device_properties(device)
+    except Exception:
+        # ✅ 兜底：即使上面漏了，也绝不报 Torch not compiled with CUDA enabled
+        return False
     if props.major >= 8:
         return True
 
